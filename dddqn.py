@@ -233,14 +233,15 @@ for episode in range(3000):
             action_probs = action_count / np.sum(action_count)
             action_count = [1] * action_shape[0]
             step_counter+=1
-       
+        
         print(
             '\r🚂 Episode {}'
             '\t 🏆 Score: {:.3f}'
             ' Avg: {:.3f}'
             '\t 💯 Done: {:.2f}%'
             ' Avg: {:.2f}%'
-            '\t 🔀 Action Probs: {}'.format(
+            '\t 🔀 Action Probs: {}'
+            '\n'.format(
                 episode,
                 normalized_score,
                 smoothed_normalized_score,
