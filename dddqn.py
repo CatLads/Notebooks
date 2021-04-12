@@ -197,7 +197,7 @@ for episode in range(3000):
         done = {i: False for i in range(0, num_agents)}
         done["__all__"] = False
         scores = 0
-
+        step_counter = 0;
 
 
         while not done["__all__"]:
@@ -222,15 +222,18 @@ for episode in range(3000):
                 scores += all_rewards[i]
             agent007.train()
 
+
             tasks_finished = sum(done[idx] for idx in env.get_agent_handles())
-            completion = tasks_finished / max(1, env.get_num_agents())
+            if(step_counter < max_steps-1):
+                completion = tasks_finished / max(1, env.get_num_agents())
             normalized_score = scores / (max_steps * env.get_num_agents())
             smoothing = 0.99
             smoothed_normalized_score = smoothed_normalized_score * smoothing + normalized_score * (1.0 - smoothing)
             smoothed_completion = smoothed_completion * smoothing + completion * (1.0 - smoothing)
             action_probs = action_count / np.sum(action_count)
             action_count = [1] * action_shape[0]
-
+            step_counter+=1
+       
         print(
             '\r🚂 Episode {}'
             '\t 🏆 Score: {:.3f}'
