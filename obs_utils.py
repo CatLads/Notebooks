@@ -122,3 +122,13 @@ def normalize_observation(observation, tree_depth: int, observation_radius=0):
     agent_data = np.clip(agent_data, -1, 1)
     normalized_obs = np.concatenate((np.concatenate((data, distance)), agent_data))
     return normalized_obs
+
+def format_action_prob(action_probs):
+    action_probs = np.round(action_probs, 3)
+    actions = ["↻", "←", "↑", "→", "◼"]
+
+    buffer = ""
+    for action, action_prob in zip(actions, action_probs):
+        buffer += action + " " + "{:.3f}".format(action_prob) + " "
+
+    return buffer

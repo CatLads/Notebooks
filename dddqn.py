@@ -15,7 +15,7 @@ from flatland.envs.rail_env import RailEnv, RailEnvActions
 from flatland.envs.rail_generators import complex_rail_generator
 from flatland.envs.observations import GlobalObsForRailEnv, TreeObsForRailEnv
 from flatland.utils.rendertools import RenderTool
-from obs_utils import normalize_observation
+from obs_utils import normalize_observation, format_action_prob
 from gym import spaces
 from tqdm import tqdm
 from os import path
@@ -28,7 +28,7 @@ seed = 69 #nice
 
 width = 10 # @param{type: "integer"}
 height = 10 # @param{type: "integer"}
-num_agents =  2  # @param{type: "integer"}
+num_agents =  4  # @param{type: "integer"}
 tree_depth = 2 # @param{type: "integer"}
 radius_observation = 10
 WINDOW_LENGTH =   22# @param{type: "integer"}
@@ -185,6 +185,10 @@ if(glob.glob("model*") != []):
     agent007.load_model()
 # Train for 300 episodes
 saving_interval = 50
+max_steps = env._max_episode_steps
+smoothed_normalized_score = -1.0
+smoothed_completion = 0.0
+action_count = [0] * action_shape[0]
 for episode in range(3000):
     try:
         # Initialize episode
@@ -193,7 +197,7 @@ for episode in range(3000):
         done = {i: False for i in range(0, num_agents)}
         done["__all__"] = False
         scores = 0
-        scores_window = []
+
 
 
         while not done["__all__"]:
@@ -204,6 +208,7 @@ for episode in range(3000):
                 if not done[i]:
                     agents_obs[i] = normalize_observation(states[i], tree_depth, radius_observation)
                     actions[i] = agent007.act(agents_obs[i])
+                    action_count[actions[i]] += 1
 
 
             next_obs, all_rewards, done, info = env.step(actions) #base env
@@ -214,10 +219,32 @@ for episode in range(3000):
                     agent007.update_mem(agents_obs[i], actions[i], all_rewards[i], normalized_next_obs, done[i])
                 elif i in agents_obs: #SIMMY: It was just an else. It worked on the first loop after the "done", but then we set agents_obs to {} so it wasn't filled anymore!
                     agent007.update_mem(agents_obs[i], actions[i], all_rewards[i], agents_obs[i], done[i])
-                scores += all_rewards[i]/num_agents
+                scores += all_rewards[i]
             agent007.train()
-            scores_window.append(scores)
-        print(f"Final reward in episode {episode} was {np.mean(scores_window)}")
+
+            tasks_finished = sum(done[idx] for idx in env.get_agent_handles())
+            completion = tasks_finished / max(1, env.get_num_agents())
+            normalized_score = scores / (max_steps * env.get_num_agents())
+            smoothing = 0.99
+            smoothed_normalized_score = smoothed_normalized_score * smoothing + normalized_score * (1.0 - smoothing)
+            smoothed_completion = smoothed_completion * smoothing + completion * (1.0 - smoothing)
+            action_probs = action_count / np.sum(action_count)
+            action_count = [1] * action_shape[0]
+
+        print(
+            '\r🚂 Episode {}'
+            '\t 🏆 Score: {:.3f}'
+            ' Avg: {:.3f}'
+            '\t 💯 Done: {:.2f}%'
+            ' Avg: {:.2f}%'
+            '\t 🔀 Action Probs: {}'.format(
+                episode,
+                normalized_score,
+                smoothed_normalized_score,
+                100 * completion,
+                100 * smoothed_completion,
+                format_action_prob(action_probs)
+            ), end=" ")
         if(episode%saving_interval == 0):
           agent007.save_model()
         #sum_rewards += reward
