@@ -177,7 +177,7 @@ class agent():
 
       def load_model(self):
           self.q_net.load_weights("model")
-          self.target_net.load_weights("model")
+          self.target_net.load_weights("target_model")
           print("model loaded")
 
 agent007 = agent()
@@ -189,6 +189,7 @@ max_steps = env._max_episode_steps
 smoothed_normalized_score = -1.0
 smoothed_completion = 0.0
 action_count = [0] * action_shape[0]
+
 for episode in range(3000):
     try:
         # Initialize episode
@@ -233,7 +234,7 @@ for episode in range(3000):
             action_probs = action_count / np.sum(action_count)
             action_count = [1] * action_shape[0]
             step_counter+=1
-        
+
         print(
             '\r🚂 Episode {}'
             '\t 🏆 Score: {:.3f}'
