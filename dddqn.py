@@ -222,18 +222,21 @@ for episode in range(3000):
                     agent007.update_mem(agents_obs[i], actions[i], all_rewards[i], agents_obs[i], done[i])
                 scores += all_rewards[i]
             agent007.train()
+            step_counter += 1
+            if (step_counter == max_steps - 1):
+                #next step would be final step, will cause problems with reporting
+                break
 
+        tasks_finished = sum(done[idx] for idx in env.get_agent_handles())
 
-            tasks_finished = sum(done[idx] for idx in env.get_agent_handles())
-            if(step_counter < max_steps-1):
-                completion = tasks_finished / max(1, env.get_num_agents())
-            normalized_score = scores / (max_steps * env.get_num_agents())
-            smoothing = 0.99
-            smoothed_normalized_score = smoothed_normalized_score * smoothing + normalized_score * (1.0 - smoothing)
-            smoothed_completion = smoothed_completion * smoothing + completion * (1.0 - smoothing)
-            action_probs = action_count / np.sum(action_count)
-            action_count = [1] * action_shape[0]
-            step_counter+=1
+        completion = tasks_finished / max(1, env.get_num_agents())
+        normalized_score = scores / (max_steps * env.get_num_agents())
+        smoothing = 0.99
+        smoothed_normalized_score = smoothed_normalized_score * smoothing + normalized_score * (1.0 - smoothing)
+        smoothed_completion = smoothed_completion * smoothing + completion * (1.0 - smoothing)
+        action_probs = action_count / np.sum(action_count)
+        action_count = [1] * action_shape[0]
+
 
         print(
             '\r🚂 Episode {}'
