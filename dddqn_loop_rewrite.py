@@ -7,13 +7,18 @@ Original file is located at
     https://colab.research.google.com/github/CatLads/Notebooks/blob/main/DDDQN.ipynb
 """
 
+from tensorflow.keras.models import load_model
+import tensorflow as tf
+import numpy as np
+from flatland.envs.observations import ObservationBuilder
+from scipy import signal, ndimage
 from flatland.envs.rail_generators import sparse_rail_generator
 from flatland.envs.schedule_generators import sparse_schedule_generator
 from flatland.envs.rail_env import RailEnv, RailEnvActions
 from flatland.envs.rail_generators import complex_rail_generator
 from flatland.envs.observations import GlobalObsForRailEnv, TreeObsForRailEnv
 from flatland.utils.rendertools import RenderTool
-from obs_utils import normalize_observation, format_action_prob
+from obs_utils import format_action_prob
 from gym import spaces
 from tqdm import tqdm
 from os import path
@@ -21,8 +26,49 @@ import sys
 import os
 import glob
 
-seed = 69  # nice
 
+def normalize_observation(observation):
+    return observation.flatten()
+
+
+class TemperatureObservation(ObservationBuilder):
+    #self.rail_obs = np.zeros((self.env.height, self.env.width, len(self.env.agents)))
+
+    def reset(self):
+        self.rail_obs = np.zeros(
+            (self.env.height, self.env.width, len(self.env.agents)))
+        return self.rail_obs, {}
+
+    def relax_temperature(self, handle: int = 0):
+        """
+        Relax the temperature
+        """
+        relaxed = ndimage.gaussian_filter(self.rail_obs[:, :, handle], 1)
+        mask = self.env.rail.grid > 0
+        relaxed[~mask] = np.inf
+        return relaxed
+
+    def get(self, handle: int = 0) -> (np.ndarray):
+        agent = self.env.agents[handle]
+        x_target = agent.target[0]
+        y_target = agent.target[1]
+        # This sets the temperatures for other 🚂s (which are hot)
+        for i, other_agent in enumerate(self.env.agents):
+            x = other_agent.position[0] if other_agent.position is not None else None
+            y = other_agent.position[1] if other_agent.position is not None else None
+            if handle != i:
+                self.rail_obs[x, y, i] = 1
+                # This heats up others trains' stations
+                self.rail_obs[other_agent.target[0],
+                              other_agent.target[1], handle] = 0.5
+
+        self.rail_obs[x_target, y_target, handle] = -1
+
+        self.relax_temperature(handle)
+        return self.rail_obs[:, :, handle]
+
+
+seed = 69  # nice
 width = 10  # @param{type: "integer"}
 height = 10  # @param{type: "integer"}
 num_agents = 4  # @param{type: "integer"}
@@ -45,7 +91,7 @@ env = RailEnv(
     width=width,
     height=height,
     rail_generator=random_rail_generator,
-    obs_builder_object=TreeObsForRailEnv(tree_depth),
+    obs_builder_object=TemperatureObservation(),
     number_of_agents=num_agents
 )
 
@@ -53,12 +99,8 @@ obs, info = env.reset()
 
 env_renderer = RenderTool(env)
 
-state_shape = normalize_observation(obs[0], tree_depth, radius_observation).shape
+state_shape = normalize_observation(obs[0]).shape
 action_shape = (5,)
-
-import tensorflow as tf
-import numpy as np
-from tensorflow.keras.models import load_model
 
 
 class DDDQN(tf.keras.Model):
@@ -67,7 +109,8 @@ class DDDQN(tf.keras.Model):
         self.d1 = tf.keras.layers.Dense(128, activation='relu')
         self.d2 = tf.keras.layers.Dense(128, activation='relu')
         self.v = tf.keras.layers.Dense(1, activation=None)
-        self.a = tf.keras.layers.Dense(5, activation=None)  # TODO: Change this please
+        self.a = tf.keras.layers.Dense(
+            5, activation=None)  # TODO: Change this please
 
     def call(self, input_data):
         x = self.d1(input_data)
@@ -88,11 +131,13 @@ class exp_replay():
     def __init__(self, buffer_size=1000000):
         self.buffer_size = buffer_size
 
-        self.state_mem = np.zeros((self.buffer_size, *state_shape), dtype=np.float32)
+        self.state_mem = np.zeros(
+            (self.buffer_size, *state_shape), dtype=np.float32)
         self.action_mem = np.zeros((self.buffer_size),
                                    dtype=np.int32)  # SIMMY: I removed , *action_shape cause we should just save one action per agent, not all of them
         self.reward_mem = np.zeros((self.buffer_size), dtype=np.float32)
-        self.next_state_mem = np.zeros((self.buffer_size, *state_shape), dtype=np.float32)
+        self.next_state_mem = np.zeros(
+            (self.buffer_size, *state_shape), dtype=np.float32)
         self.done_mem = np.zeros((self.buffer_size), dtype=np.bool)
         self.pointer = 0
 
@@ -134,7 +179,8 @@ class agent():
 
     def act(self, state):
         if np.random.rand() <= self.epsilon:
-            return np.random.choice([i for i in range(5)])  # TODO: change the 5
+            # TODO: change the 5
+            return np.random.choice([i for i in range(5)])
 
         else:
             actions = self.q_net.advantage(np.array([state]))
@@ -148,7 +194,8 @@ class agent():
         self.target_net.set_weights(self.q_net.get_weights())
 
     def update_epsilon(self):
-        self.epsilon = self.epsilon - self.epsilon_decay if self.epsilon > self.min_epsilon else self.min_epsilon
+        self.epsilon = self.epsilon - \
+            self.epsilon_decay if self.epsilon > self.min_epsilon else self.min_epsilon
         return self.epsilon
 
     def train(self):
@@ -157,13 +204,15 @@ class agent():
 
         if self.trainstep % self.replace == 0:
             self.update_target()
-        states, actions, rewards, next_states, dones = self.memory.sample_exp(self.batch_size)
+        states, actions, rewards, next_states, dones = self.memory.sample_exp(
+            self.batch_size)
         target = self.q_net.predict(states)
         next_state_val = self.target_net.predict(next_states)
         max_action = np.argmax(self.q_net.predict(next_states), axis=1)
         batch_index = np.arange(self.batch_size, dtype=np.int32)
         q_target = np.copy(target)
-        q_target[batch_index, actions] = rewards + self.gamma * next_state_val[batch_index, max_action] * dones
+        q_target[batch_index, actions] = rewards + self.gamma * \
+            next_state_val[batch_index, max_action] * dones
         self.q_net.train_on_batch(states, q_target)
         self.update_epsilon()
         self.trainstep += 1
@@ -180,7 +229,7 @@ class agent():
 
 
 agent007 = agent()
-if (glob.glob("alternative_model") != []):
+if (glob.glob("alternative_model.*") != []):
     agent007.load_model()
 # Train for 300 episodes
 saving_interval = 50
@@ -198,15 +247,15 @@ for episode in range(3000):
     try:
         # Initialize episode
         obs, info = env.reset(regenerate_rail=True, regenerate_schedule=True)
-        # env_renderer = RenderTool(env)
+        env_renderer = RenderTool(env)
         done = {i: False for i in range(0, num_agents)}
         done["__all__"] = False
         scores = 0
-        step_counter = 0;
+        step_counter = 0
 
         for agent in env.get_agent_handles():
-            if obs[agent]:
-                agent_obs[agent] = normalize_observation(obs[agent], tree_depth, observation_radius=radius_observation)
+            if obs[agent] is not None:
+                agent_obs[agent] = normalize_observation(obs[agent])
                 agent_prev_obs[agent] = agent_obs[agent].copy()
 
         for step in range(max_steps - 1):
@@ -219,7 +268,7 @@ for episode in range(3000):
                     action = agent007.act(agent_obs[agent])
 
                     action_count[action] += 1
-                    #actions_taken.append(action)
+                    # actions_taken.append(action)
                 else:
                     # An action is not required if the train hasn't joined the railway network,
                     # if it already reached its target, or if is currently malfunctioning.
@@ -227,38 +276,39 @@ for episode in range(3000):
                     action = 0
                 action_dict.update({agent: action})
 
-            next_obs, all_rewards, done, info = env.step(action_dict)  # base env
-            # env_renderer.render_env(show=True)
+            next_obs, all_rewards, done, info = env.step(
+                action_dict)  # base env
+            env_renderer.render_env(show=True)
 
             # Update replay buffer and train agent
             for agent in env.get_agent_handles():
                 if update_values[agent] or done['__all__']:
                     # Only learn from timesteps where somethings happened
-                    agent007.update_mem(agent_prev_obs[agent], agent_prev_action[agent], all_rewards[agent], agent_obs[agent], done[agent])
+                    agent007.update_mem(
+                        agent_prev_obs[agent], agent_prev_action[agent], all_rewards[agent], agent_obs[agent], done[agent])
                     agent007.train()
                     agent_prev_obs[agent] = agent_obs[agent].copy()
                     agent_prev_action[agent] = action_dict[agent]
 
                 # Preprocess the new observations
-                if next_obs[agent]:
+                if next_obs[agent] is not None:
 
-                    agent_obs[agent] = normalize_observation(next_obs[agent], tree_depth,
-                                                             observation_radius=radius_observation)
+                    agent_obs[agent] = normalize_observation(next_obs[agent])
 
                 scores += all_rewards[agent]
 
             if done['__all__']:
                 break
 
-
-
         tasks_finished = sum(done[idx] for idx in env.get_agent_handles())
         if (step_counter < max_steps - 1):
             completion = tasks_finished / max(1, env.get_num_agents())
         normalized_score = scores / (max_steps * env.get_num_agents())
         smoothing = 0.99
-        smoothed_normalized_score = smoothed_normalized_score * smoothing + normalized_score * (1.0 - smoothing)
-        smoothed_completion = smoothed_completion * smoothing + completion * (1.0 - smoothing)
+        smoothed_normalized_score = smoothed_normalized_score * \
+            smoothing + normalized_score * (1.0 - smoothing)
+        smoothed_completion = smoothed_completion * \
+            smoothing + completion * (1.0 - smoothing)
         action_probs = action_count / np.sum(action_count)
         action_count = [1] * action_shape[0]
         step_counter += 1
@@ -289,4 +339,3 @@ for episode in range(3000):
             sys.exit(0)
         except SystemExit:
             os._exit(0)
-
