@@ -213,6 +213,10 @@ class agent():
         q_target = np.copy(target)
         q_target[batch_index, actions] = rewards + self.gamma * \
             next_state_val[batch_index, max_action] * dones
+        # TEchnically, q_target is our real value, while target is the predicted one. So, target-q_target should be a good estimate of loss.
+        # Is this loss?
+        loss = np.sum(np.abs(q_target - target), axis=1).reshape((-1))
+        print(f"This is loss???? {loss}")
         self.q_net.train_on_batch(states, q_target)
         self.update_epsilon()
         self.trainstep += 1

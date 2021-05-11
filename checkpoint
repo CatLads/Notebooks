@@ -1,2 +1,2 @@
-model_checkpoint_path: "dqn_flatland_weights.h5f"
-all_model_checkpoint_paths: "dqn_flatland_weights.h5f"
+model_checkpoint_path: "alternative_target_model"
+all_model_checkpoint_paths: "alternative_target_model"
