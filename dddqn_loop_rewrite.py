@@ -20,7 +20,9 @@ from os import path
 import sys
 import os
 import glob
-
+import wandb
+wandb.init(project='flatlands', entity='fatlads', tags=["base_baseline", "dddqn"])
+config = wandb.config
 seed = 69  # nice
 
 width = 10  # @param{type: "integer"}
@@ -262,7 +264,12 @@ for episode in range(3000):
         action_probs = action_count / np.sum(action_count)
         action_count = [1] * action_shape[0]
         step_counter += 1
-
+        wandb.log({
+            "normalized_score": normalized_score,
+            "smoothed_normalized_score": smoothed_normalized_score,
+            "completion": 100*completion,
+            "smoothed_completion": 100*smoothed_completion
+        })
         print(
             '\r🚂 Episode {}'
             '\t 🏆 Score: {:.3f}'
